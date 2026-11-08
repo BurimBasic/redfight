@@ -1,0 +1,18 @@
+# Builds and local reports
+/Windows/
+/Review/
+/Проверки.txt
+*.log
+*.zip
+.DS_Store
+Thumbs.db
+# Rendered music is already included once in UnityProject.
+/Music/PaperAndSteam-AY.wav
+/Music/AY-registers.bin
+/Music/AY-render.json
+# Local credentials and environment files
+.env
+.env.*
+!.env.example
+*.pem
+*.key
