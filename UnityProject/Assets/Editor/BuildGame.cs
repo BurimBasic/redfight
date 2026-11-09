@@ -9,9 +9,9 @@ public static class BuildGame {
     static void Check(bool ok,string name){if(!ok)throw new Exception("CHECK FAILED: "+name);passed++;Debug.Log("PASS: "+name);}
     public static void Build(){
         try {
-            ConfigureArt();if(Array.IndexOf(Environment.GetCommandLineArgs(),"--art-review")>=0)ExportWalkReview();RunChecks();
+            ConfigureArt();if(Array.IndexOf(Environment.GetCommandLineArgs(),"--art-review")>=0)ExportWalkReview();RunChecks();if(Array.IndexOf(Environment.GetCommandLineArgs(),"--arena-review")>=0)ArenaReview.Export();
             var scene=EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,NewSceneMode.Single);EditorSceneManager.SaveScene(scene,"Assets/Scenes/RedRivalry.unity");
-            PlayerSettings.companyName="Pixel Duel Studio";PlayerSettings.productName="Красный поединок";PlayerSettings.bundleVersion="3.1.0";
+            PlayerSettings.companyName="Pixel Duel Studio";PlayerSettings.productName="Красный поединок";PlayerSettings.bundleVersion="3.2.0";
             PlayerSettings.defaultScreenWidth=1280;PlayerSettings.defaultScreenHeight=720;PlayerSettings.fullScreenMode=FullScreenMode.Windowed;PlayerSettings.resizableWindow=true;PlayerSettings.runInBackground=true;
             PlayerSettings.SetScriptingBackend(UnityEditor.Build.NamedBuildTarget.Standalone,ScriptingImplementation.Mono2x);PlayerSettings.colorSpace=ColorSpace.Gamma;
             var settings=new SerializedObject(AssetDatabase.LoadAllAssetsAtPath("ProjectSettings/ProjectSettings.asset")[0]);var handler=settings.FindProperty("activeInputHandler");if(handler!=null){handler.intValue=2;settings.ApplyModifiedPropertiesWithoutUndo();}
@@ -72,7 +72,13 @@ public static class BuildGame {
         w.Reset();float beforePhase=a.walkPhase;Advance(w,30,new Command{move=1});Check(a.walking&&a.walkPhase>beforePhase,"walk animation advances while moving");float stoppedPhase=a.walkPhase;Advance(w,15);Check(!a.walking&&a.walkPhase==stoppedPhase,"stopping does not cycle walk frames");
         var score=Resources.Load<AudioClip>("Audio/PaperAndSteam");Check(score!=null&&score.length>100&&score.length<102&&score.channels==2,"full AY soundtrack is included");
         var ay=Resources.Load<TextAsset>("Audio/PaperAndSteam-AY");Check(ay!=null&&System.Text.Encoding.ASCII.GetString(ay.bytes,0,4)=="YM6!"&&ay.bytes[26]==0&&ay.bytes[27]==50,"native PSG register score is included at 50 Hz");
-        var p=new PixelCanvas();var art=new ArenaArt(p);Check(art.backgrounds[0].Length==640*360&&art.backgrounds[1].Length==640*360,"both arenas render");
+        var p=new PixelCanvas();var art=new ArenaArt(p);Check(art.LoadedArtwork==ArenaArt.Count,"all six arena illustrations are included");Check(art.TrainLoaded,"transparent metro train sprite is included");
+        for(int stage=0;stage<ArenaArt.Count;stage++){
+            Check(art.backgrounds[stage].Length==640*360,"arena dimensions "+ArenaArt.Title(stage));art.Draw(stage,2.1f);var earlier=(Color32[])p.pixels.Clone();art.Draw(stage,7.7f);int changed=0;for(int k=0;k<earlier.Length;k++)if(!earlier[k].Equals(p.pixels[k]))changed++;
+            Check(changed>20,"arena scenery animates "+ArenaArt.Title(stage));var same=(Color32[])p.pixels.Clone();art.Draw(stage,7.7f);bool deterministic=true;for(int k=0;k<same.Length;k++)if(!same[k].Equals(p.pixels[k])){deterministic=false;break;}Check(deterministic,"arena animation is time based "+ArenaArt.Title(stage));
+        }
+        Check(ArenaArt.Normalize(-1)==5&&ArenaArt.Normalize(6)==0,"saved arena and selection indices wrap safely");
+        art.Draw(2,7.7f);bool columns=true,floor=true;foreach(int x in new[]{36,226,415,603})if(!p.pixels[(359-247)*640+x].Equals(art.backgrounds[2][(359-247)*640+x]))columns=false;for(int x=0;x<640;x++)if(!p.pixels[59*640+x].Equals(art.backgrounds[2][59*640+x]))floor=false;Check(columns&&floor,"metro train remains behind columns and off the fighting floor");
         foreach(ActionState state in Enum.GetValues(typeof(ActionState))){a.state=state;a.stateTime=.3f;a.stateDuration=.6f;FighterArt.Draw(p,a,1);a.kind=1;FighterArt.Draw(p,a,1);}
         p.Upload();Check(p.texture.width==640,"all animation states render");
         w.Reset();a.kind=0;b.kind=1;var aiA=new OpponentAI();var aiB=new OpponentAI();for(int i=0;i<60*110&&a.hp>0&&b.hp>0;i++)w.Step(1f/60,aiA.Think(a,b,1f/60,2),aiB.Think(b,a,1f/60,2));Check(a.hp<=0||b.hp<=0,"AI can finish a full fight");

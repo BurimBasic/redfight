@@ -23,6 +23,17 @@ public static class SmokeVfx {
         float originY=q.y+6*q.age-Mathf.Pow(Mathf.Max(0,q.age-.48f),2)*14;
         float opacity=(q.heavy?.82f:.72f)*Mathf.SmoothStep(0,1,Mathf.Min(q.age*7,q.life*2));Blit(p,origin,originY,len,Mathf.Max(2,h),direction,q.age,opacity);
     }
+    public static void DrawAmbient(PixelCanvas p,float ox,float oy,float w,float h,float time,float opacity){
+        Ensure();if(pixels==null)return;
+        for(int y=Mathf.Max(0,(int)(oy-h));y<Mathf.Min(H,(int)oy);y++){
+            float u=(oy-y)/h,drift=Mathf.Sin(u*7-time*.8f)*w*.12f+u*w*.35f;
+            for(int x=Mathf.Max(0,(int)(ox-w));x<Mathf.Min(W,(int)(ox+w));x++){
+                float v=(x-ox-drift)/w+anchor;if(v<0||v>=1)continue;var src=pixels[Mathf.Min(height-1,(int)(v*height))*width+Mathf.Min(width-1,(int)(u*width))];
+                float a=src.a/255f*opacity*(1-u*.65f)*(0.85f+.15f*Mathf.Sin(time+u*5));if(a*16<=bayer[(x&3)+(y&3)*4])continue;
+                int k=(H-1-y)*W+x;p.pixels[k]=Color32.Lerp(p.pixels[k],palette[Mathf.Clamp((src.r+src.g+src.b)/3*6/256,0,5)],.35f);
+            }
+        }
+    }
     static void Blit(PixelCanvas p,float ox,float oy,float w,float h,int direction,float time,float opacity){
         int left=Mathf.Max(0,Mathf.FloorToInt(direction>0?ox:ox-w)),right=Mathf.Min(W-1,Mathf.CeilToInt(direction>0?ox+w:ox));
         int top=Mathf.Max(0,Mathf.FloorToInt(oy-anchor*h-4)),bottom=Mathf.Min(H-1,Mathf.CeilToInt(oy+(1-anchor)*h+4));if(right<left)return;

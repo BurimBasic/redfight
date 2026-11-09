@@ -3,10 +3,22 @@ using UnityEngine;
 using static RedRivalry.PixelCanvas;
 namespace RedRivalry {
 public sealed class ArenaArt {
-    public readonly Color32[][] backgrounds=new Color32[2][];
+    public const int Count=6;
+    static readonly string[] titles={"ЗИМНЯЯ ПЛОЩАДЬ","ЛИТЕЙНЫЙ ЦЕХ","КОМСОМОЛЬСКАЯ","ВОКЗАЛ","НАБЕРЕЖНАЯ","КРЫШИ ГОРОДА"};
+    static readonly string[] resources={"WinterArena","FoundryArena","KomsomolskayaArena","RailwayArena","HarborArena","RooftopArena"};
+    static readonly string[] captions={"СНЕГ И НОЧНЫЕ ОГНИ","ИСКРЫ И ЖАР ПЕЧЕЙ","МОСКВА / КОЛЬЦЕВАЯ ЛИНИЯ","ДОЖДЬ И ПАРОВОЗНЫЙ ПАР","РЕКА И ОГНИ МОСТА","ВЕТЕР НАД ГОРОДОМ"};
+    public readonly Color32[][] backgrounds=new Color32[Count][];
+    public int LoadedArtwork {get;private set;}
+    public static int Normalize(int index)=>((index%Count)+Count)%Count;
+    public static string Title(int index)=>titles[Normalize(index)];
+    public static string Caption(int index)=>captions[Normalize(index)];
+    public static string NumberedTitle(int index)=>(Normalize(index)+1).ToString("00")+" / "+Title(index);
+    readonly ArenaMotion motion;
     readonly System.Random rng=new System.Random(1917);
     PixelCanvas p;
-    public ArenaArt(PixelCanvas canvas){p=canvas;backgrounds[0]=SpriteArt.Background("WinterArena");if(backgrounds[0]==null){Winter();backgrounds[0]=(Color32[])p.pixels.Clone();}backgrounds[1]=SpriteArt.Background("FoundryArena");if(backgrounds[1]==null){Foundry();backgrounds[1]=(Color32[])p.pixels.Clone();}}
+    public ArenaArt(PixelCanvas canvas){p=canvas;for(int i=0;i<Count;i++){backgrounds[i]=SpriteArt.Background(resources[i]);if(backgrounds[i]!=null){LoadedArtwork++;continue;}if(i==0)Winter();else Foundry();backgrounds[i]=(Color32[])p.pixels.Clone();}motion=new ArenaMotion(p);}
+    public bool TrainLoaded=>motion.TrainLoaded;
+    public void Thumbnail(int index,int x,int y,int w,int h){var src=backgrounds[Normalize(index)];for(int yy=0;yy<h;yy++)for(int xx=0;xx<w;xx++)p.P(x+xx,y+yy,src[(H-1-yy*H/h)*W+xx*W/w]);}
     void R(int x,int y,int w,int h,uint c){p.Rect(x,y,w,h,C(c));}
     void L(int x,int y,int xx,int yy,uint c,int s=1){p.Line(x,y,xx,yy,C(c),s);}
     void Tower(int x,int baseY,int width,int height,bool clock=false){
@@ -63,9 +75,11 @@ public sealed class ArenaArt {
         Crate(3,292,32,39);Crate(606,286,35,45);
     }
     public void Draw(int index,float time){
+        index=Normalize(index);
         Array.Copy(backgrounds[index],p.pixels,p.pixels.Length);
         if(index==0){for(int i=0;i<58;i++){int x=(int)((i*83+Mathf.Sin(time*.35f+i)*15+time*8)%660)-10;int y=(int)((i*41+time*(8+i%9))%355);p.Rect(x,y,i%7==0?2:1,1,C(i%3==0?0xd2dcdfu:0x7d98aau));}}
-        else for(int i=0;i<40;i++){int x=(int)((i*67+Mathf.Sin(time+i)*10)%640),y=245-(int)((i*17+time*(15+i%12))%160);p.Rect(x,y,1,i%5==0?3:1,C(i%3==0?0xffcc79u:0xb56a55u));}
+        else if(index==1)for(int i=0;i<40;i++){int x=(int)((i*67+Mathf.Sin(time+i)*10)%640),y=245-(int)((i*17+time*(15+i%12))%160);p.Rect(x,y,1,i%5==0?3:1,C(i%3==0?0xffcc79u:0xb56a55u));}
+        motion.Draw(index,time);
     }
 }
 }

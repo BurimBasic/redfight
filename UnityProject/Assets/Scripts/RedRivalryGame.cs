@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using static RedRivalry.PixelCanvas;
 namespace RedRivalry {
-public enum ScreenMode { Menu,Select,Fight,Pause,Guide,Result,Controllers }
+public enum ScreenMode { Menu,Select,Fight,Pause,Guide,Result,Controllers,Arenas }
 public sealed class RedRivalryGame:MonoBehaviour {
     public PixelCanvas canvas;public ArenaArt arena;public CombatWorld world;public Controls controls;public SynthAudio audioFx;
     public ScreenMode mode;ScreenMode guideReturn=ScreenMode.Menu;
@@ -21,7 +21,7 @@ public sealed class RedRivalryGame:MonoBehaviour {
         Application.targetFrameRate=60;QualitySettings.vSyncCount=1;Application.runInBackground=true;
         canvas=new PixelCanvas();arena=new ArenaArt(canvas);world=new CombatWorld();controls=new Controls();audioFx=gameObject.AddComponent<SynthAudio>();world.Effect+=OnEffect;world.Reset();mode=ScreenMode.Menu;
         var camera=new GameObject("Pixel Camera").AddComponent<Camera>();camera.clearFlags=CameraClearFlags.SolidColor;camera.backgroundColor=Color.black;camera.gameObject.AddComponent<AudioListener>();
-        difficulty=Mathf.Clamp(PlayerPrefs.GetInt("difficulty",1),0,2);stage=Mathf.Clamp(PlayerPrefs.GetInt("stage",0),0,1);if(PlayerPrefs.GetInt("muted",0)==1)audioFx.Toggle();
+        difficulty=Mathf.Clamp(PlayerPrefs.GetInt("difficulty",1),0,2);stage=ArenaArt.Normalize(PlayerPrefs.GetInt("stage",0));if(PlayerPrefs.GetInt("muted",0)==1)audioFx.Toggle();
         var args=Environment.GetCommandLineArgs();showcase=Array.IndexOf(args,"--showcase")>=0;int ix=Array.IndexOf(args,"--qa");if(ix>=0){qa=true;qaDirectory=ix+1<args.Length?args[ix+1]:Application.persistentDataPath;System.IO.Directory.CreateDirectory(qaDirectory);if(!audioFx.muted)audioFx.Toggle();stage=0;Debug.Log("QA_RUNTIME_STARTED");}
         int probe=Array.IndexOf(args,"--controller-check");if(probe>=0){controllerProbe=new ControllerProbe(probe+1<args.Length?args[probe+1]:Application.persistentDataPath);mode=ScreenMode.Controllers;}
         Render();
@@ -50,6 +50,14 @@ public sealed class RedRivalryGame:MonoBehaviour {
         Render();
     }
     void TickMenus(){
+        if(mode==ScreenMode.Arenas){
+            if(controls.Back){mode=ScreenMode.Select;focus=1;return;}
+            int step=controls.Right?1:controls.Left?-1:controls.Down?3:controls.Up?-3:0;
+            if(step!=0){focus=ArenaArt.Normalize(focus+step);audioFx.Play("confirm");}
+            Vector2 point=Mouse();bool arenaMouseMoved=(point-previousMouse).sqrMagnitude>.5f;previousMouse=point;
+            for(int i=0;i<buttons.Count;i++)if(buttons[i].rect.Contains(point)){if(arenaMouseMoved)focus=i;if(Input.GetMouseButtonDown(0)){buttons[i].action();return;}}
+            if(controls.Confirm&&focus<buttons.Count)buttons[focus].action();return;
+        }
         if(mode==ScreenMode.Controllers){
             for(int slot=0;slot<2;slot++)if(controls.Pressed(slot,Controls.Buttons.Light)){controls.Rumble(slot,true);rumbleTime=.35f;controllerProbe?.RumbleRequested(slot);}
             if(controls.Back||(Input.GetMouseButtonDown(0)&&new Rect(39,307,138,23).Contains(Mouse()))){mode=ScreenMode.Guide;focus=0;}return;
@@ -106,6 +114,7 @@ public sealed class RedRivalryGame:MonoBehaviour {
         else if(mode==ScreenMode.Select)DrawSelect();
         else if(mode==ScreenMode.Guide)DrawGuide();
         else if(mode==ScreenMode.Controllers)DrawControllers();
+        else if(mode==ScreenMode.Arenas)DrawArenas();
         if(mode==ScreenMode.Pause)DrawPause();
         if(mode==ScreenMode.Result)DrawResult();
         canvas.Upload();
@@ -133,7 +142,7 @@ public sealed class RedRivalryGame:MonoBehaviour {
         canvas.Text("1917",365,33,Red,2);canvas.Text("АЛЬТЕРНАТИВНАЯ ИСТОРИЯ",365,54,Muted,1,true);
         canvas.Text("ЛЕНИН",382,322,White,2,true);canvas.Text("СТАЛИН",513,322,White,2,true);canvas.Text("КНИГИ",390,343,Gold,1,true);canvas.Text("ТРУБКА",520,343,Teal,1,true);
         Button("ВЫХОД",541,25,76,()=>Application.Quit(),true);
-        canvas.Text(stage==0?"01 / ЗИМНЯЯ ПЛОЩАДЬ":"02 / ЛИТЕЙНЫЙ ЦЕХ",365,91,Gold,1,true);
+        canvas.Text(ArenaArt.NumberedTitle(stage),365,91,Gold,1,true);
         canvas.Text("ДО ДВУХ ПОБЕД",365,105,Muted,1,true);R(365,122,246,1,0x5c5360);canvas.Center("VS",486,203,Gold,2,true);
     }
     void DrawSelect(){
@@ -149,7 +158,7 @@ public sealed class RedRivalryGame:MonoBehaviour {
             if(Input.GetMouseButtonDown(0)&&new Rect(x,80,276,198).Contains(Mouse()))selectedFighter=i;
         }
         Button("НАЧАТЬ БОЙ",35,294,196,()=>BeginMatch(selectedFighter,local,training));
-        Button(stage==0?"АРЕНА: ПЛОЩАДЬ":"АРЕНА: ЦЕХ",240,294,195,()=>stage=1-stage);
+        Button("АРЕНА: "+ArenaArt.Title(stage),240,294,195,()=>{mode=ScreenMode.Arenas;focus=stage;});
         Button("ИИ: "+(difficulty==0?"ЛЕГКО":difficulty==1?"НОРМА":"СЛОЖНО"),444,294,161,()=>difficulty=(difficulty+1)%3);
         canvas.Text("A / D ИЛИ СТИК: БОЕЦ   ENTER / "+controls.ConfirmKey+": СТАРТ   ESC / "+controls.BackKey+": НАЗАД",35,341,Muted);
     }
@@ -187,7 +196,7 @@ public sealed class RedRivalryGame:MonoBehaviour {
             for(int j=0;j<2;j++)canvas.Ellipse(i==0?258+j*11:599+j*11,74,3,3,j<f.wins?Gold:C(0x344052));
         }
         Panel(288,13,64,61);canvas.Center(training?"--":Mathf.CeilToInt(remaining).ToString("00"),320,24,White,3);canvas.Center("BEST OF 3",320,59,Gold);
-        canvas.Center(stage==0?"ЗИМНЯЯ ПЛОЩАДЬ":"ЛИТЕЙНЫЙ ЦЕХ",320,95,Gold,1,true);
+        canvas.Center(ArenaArt.Title(stage),320,95,Gold,1,true);
     }
     void DrawPause(){canvas.Dim(.35f);Panel(170,78,300,209);canvas.Center("ПАУЗА",320,98,White,3);if(disconnectNotice.Length>0)canvas.Center(disconnectNotice,320,123,Gold);Button("ПРОДОЛЖИТЬ",196,138,248,()=>{disconnectNotice="";mode=ScreenMode.Fight;});Button("УПРАВЛЕНИЕ И ПРИЁМЫ",196,171,248,()=>Guide(ScreenMode.Pause));Button("НАЧАТЬ ЗАНОВО",196,204,248,()=>BeginMatch(selectedFighter,local,training));Button("ГЛАВНОЕ МЕНЮ",196,237,248,()=>{mode=ScreenMode.Menu;focus=0;});}
     void DrawResult(){canvas.Dim(.45f);Panel(137,88,366,190);int win=world.fighters[0].wins>=2?0:1;canvas.Center("ПОБЕДИТЕЛЬ",320,106,Gold,2);canvas.Center(world.fighters[win].kind==0?"ЛЕНИН":"СТАЛИН",320,133,White,4);canvas.Center(world.fighters[0].wins+" : "+world.fighters[1].wins,320,178,Gold,2);Button("РЕВАНШ",161,211,149,()=>BeginMatch(selectedFighter,local,training));Button("В МЕНЮ",322,211,157,()=>{mode=ScreenMode.Menu;focus=0;});canvas.Center("ДО ДВУХ ПОБЕД",320,257,Muted);}
@@ -223,6 +232,15 @@ public sealed class RedRivalryGame:MonoBehaviour {
         }
         Button("НАЗАД",39,307,138,()=>{mode=ScreenMode.Guide;focus=0;},true);canvas.Text("ESC / "+controls.BackKey+": НАЗАД",199,315,Muted);
     }
+    void DrawArenas(){
+        canvas.Dim(.65f);canvas.Text("ВЫБЕРИ АРЕНУ",35,23,White,3);canvas.Text("ШЕСТЬ МЕСТ ДЛЯ БОЛЬШОГО СПОРА",36,53,Gold);
+        for(int i=0;i<ArenaArt.Count;i++){
+            int chosen=i,x=35+i%3*196,y=77+i/3*117;bool active=i==focus;R(x,y,180,105,0x111b2c);arena.Thumbnail(i,x+2,y+2,176,72);canvas.Frame(x,y,180,105,active?Gold:Muted,active?2:1);
+            canvas.Text(ArenaArt.Title(i),x+8,y+80,active?White:Muted);canvas.Text((i+1).ToString("00")+" / "+(i==stage?"ВЫБРАНА":"АНИМИРОВАННАЯ"),x+8,y+94,active?Gold:Teal);
+            buttons.Add(new UiButton{rect=new Rect(x,y,180,105),text=ArenaArt.Title(i),action=()=>{stage=chosen;mode=ScreenMode.Select;focus=0;audioFx.Play("confirm");}});
+        }
+        canvas.Text(ArenaArt.Caption(focus),35,313,Gold);canvas.Text("СТИК / СТРЕЛКИ: ВЫБОР   ENTER / "+controls.ConfirmKey+": ВЫБРАТЬ   ESC / "+controls.BackKey+": НАЗАД",35,338,Muted);
+    }
     void TickQa(float dt){
         qaTime+=dt;
         if(qaTime>(showcase?1.5f:3)&&qaTime<(showcase?13:7)&&Time.frameCount%(showcase?1:5)==0){
@@ -246,7 +264,11 @@ public sealed class RedRivalryGame:MonoBehaviour {
                 BeginMatch(0,true);Require(local&&mode==ScreenMode.Fight,"local match starts");
                 BeginMatch(1,false,true);countdown=0;world.fighters[1].hp=10;TickFight(.016f);Require(world.fighters[1].hp==100&&world.fighters[0].energy==100,"training restores health and energy");
                 Guide(ScreenMode.Menu);SaveShot(System.IO.Path.Combine(qaDirectory,"06-controls.png"));
-                Debug.Log("QA_RUNTIME_COMPLETE frames="+Time.frameCount);System.IO.File.WriteAllText(System.IO.Path.Combine(qaDirectory,"runtime.txt"),"Windows runtime completed without errors. 6 match-flow checks passed. Both stages, menu, selection, result and controls rendered. Frames="+Time.frameCount);Application.Quit(0);
+                for(int i=0;i<ArenaArt.Count;i++){stage=i;BeginMatch(0,false,true);countdown=0;SaveShot(System.IO.Path.Combine(qaDirectory,"arena-"+i+".png"));}
+                mode=ScreenMode.Arenas;focus=2;Render();Require(buttons.Count==ArenaArt.Count,"all six arena cards are selectable");
+                for(int i=0;i<ArenaArt.Count;i++){mode=ScreenMode.Arenas;focus=i;Render();buttons[i].action();Require(stage==i&&mode==ScreenMode.Select,"arena card opens correct stage "+i);}
+                stage=2;mode=ScreenMode.Arenas;focus=2;SaveShot(System.IO.Path.Combine(qaDirectory,"arena-selection.png"));
+                Debug.Log("QA_RUNTIME_COMPLETE frames="+Time.frameCount);System.IO.File.WriteAllText(System.IO.Path.Combine(qaDirectory,"runtime.txt"),"Windows runtime completed without errors. 13 flow checks passed. All six stages, arena selection, menu, character selection, result and controls rendered. Frames="+Time.frameCount);Application.Quit(0);
             }catch(Exception ex){Debug.LogException(ex);System.IO.File.WriteAllText(System.IO.Path.Combine(qaDirectory,"runtime.txt"),"FAILED: "+ex);Application.Quit(1);}
         }
     }
