@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using static RedRivalry.PixelCanvas;
 namespace RedRivalry {
-public enum ScreenMode { Menu,Select,Fight,Pause,Guide,Result }
+public enum ScreenMode { Menu,Select,Fight,Pause,Guide,Result,Controllers }
 public sealed class RedRivalryGame:MonoBehaviour {
     public PixelCanvas canvas;public ArenaArt arena;public CombatWorld world;public Controls controls;public SynthAudio audioFx;
     public ScreenMode mode;ScreenMode guideReturn=ScreenMode.Menu;
@@ -11,6 +11,7 @@ public sealed class RedRivalryGame:MonoBehaviour {
     public string announcement="";float announceTime,clockTime,rumbleTime;int focus;Vector2 previousMouse;
     readonly List<UiButton> buttons=new List<UiButton>();readonly List<Particle> particles=new List<Particle>();readonly List<Speech> speeches=new List<Speech>();
     OpponentAI ai=new OpponentAI();bool matchFinished,qa,showcase;float qaTime;int qaPhase,qaCaptureCount;string qaDirectory;
+    ControllerProbe controllerProbe;string disconnectNotice="";
     static Color32 White=C(0xf0e7cf),Gold=C(0xd9b781),Muted=C(0x8a9ba8),Red=C(0xe85c65),Teal=C(0x73d4cf);
     sealed class UiButton{public Rect rect;public string text;public Action action;}
     sealed class Particle{public float x,y,vx,vy,life,max;public Color32 color;public int size;}
@@ -22,14 +23,18 @@ public sealed class RedRivalryGame:MonoBehaviour {
         var camera=new GameObject("Pixel Camera").AddComponent<Camera>();camera.clearFlags=CameraClearFlags.SolidColor;camera.backgroundColor=Color.black;camera.gameObject.AddComponent<AudioListener>();
         difficulty=Mathf.Clamp(PlayerPrefs.GetInt("difficulty",1),0,2);stage=Mathf.Clamp(PlayerPrefs.GetInt("stage",0),0,1);if(PlayerPrefs.GetInt("muted",0)==1)audioFx.Toggle();
         var args=Environment.GetCommandLineArgs();showcase=Array.IndexOf(args,"--showcase")>=0;int ix=Array.IndexOf(args,"--qa");if(ix>=0){qa=true;qaDirectory=ix+1<args.Length?args[ix+1]:Application.persistentDataPath;System.IO.Directory.CreateDirectory(qaDirectory);if(!audioFx.muted)audioFx.Toggle();stage=0;Debug.Log("QA_RUNTIME_STARTED");}
+        int probe=Array.IndexOf(args,"--controller-check");if(probe>=0){controllerProbe=new ControllerProbe(probe+1<args.Length?args[probe+1]:Application.persistentDataPath);mode=ScreenMode.Controllers;}
         Render();
     }
-    void OnApplicationQuit(){controls.StopRumble();if(qa)return;PlayerPrefs.SetInt("difficulty",difficulty);PlayerPrefs.SetInt("stage",stage);PlayerPrefs.SetInt("muted",audioFx.muted?1:0);PlayerPrefs.Save();}
-    void OnApplicationFocus(bool hasFocus){if(!hasFocus&&mode==ScreenMode.Fight&&!qa){mode=ScreenMode.Pause;focus=0;controls.StopRumble();}}
+    void OnApplicationQuit(){controls.StopRumble();controllerProbe?.Finish(controls);if(qa)return;PlayerPrefs.SetInt("difficulty",difficulty);PlayerPrefs.SetInt("stage",stage);PlayerPrefs.SetInt("muted",audioFx.muted?1:0);PlayerPrefs.Save();}
+    void OnApplicationFocus(bool hasFocus){controls?.Resync();if(!hasFocus&&mode==ScreenMode.Fight&&!qa){mode=ScreenMode.Pause;focus=0;}}
     Rect Viewport(){float s=Mathf.Min(Screen.width/(float)W,Screen.height/(float)H);return new Rect((Screen.width-W*s)/2,(Screen.height-H*s)/2,W*s,H*s);}
     Vector2 Mouse(){var v=Viewport();return new Vector2((Input.mousePosition.x-v.x)/v.width*W,((Screen.height-Input.mousePosition.y)-v.y)/v.height*H);}
     void Update(){
         float dt=Mathf.Min(Time.unscaledDeltaTime,.034f);clockTime+=dt;controls.Poll();
+        controllerProbe?.Update(controls,canvas);
+        if(!Application.isFocused&&!qa&&controllerProbe==null)return;
+        if(mode==ScreenMode.Fight&&!qa&&(controls.DisconnectedThisFrame&(local?3:1))!=0){disconnectNotice="КОНТРОЛЛЕР ОТКЛЮЧЁН";mode=ScreenMode.Pause;focus=0;controls.StopRumble();}
         if(Input.GetKeyDown(KeyCode.F11))Screen.fullScreen=!Screen.fullScreen;
         if(Input.GetKeyDown(KeyCode.M)){audioFx.Toggle();}
         if(Input.GetKeyDown(KeyCode.F12))SaveShot(System.IO.Path.Combine(Application.persistentDataPath,"Screenshot.png"));
@@ -45,9 +50,13 @@ public sealed class RedRivalryGame:MonoBehaviour {
         Render();
     }
     void TickMenus(){
+        if(mode==ScreenMode.Controllers){
+            for(int slot=0;slot<2;slot++)if(controls.Pressed(slot,Controls.Buttons.Light)){controls.Rumble(slot,true);rumbleTime=.35f;controllerProbe?.RumbleRequested(slot);}
+            if(controls.Back||(Input.GetMouseButtonDown(0)&&new Rect(39,307,138,23).Contains(Mouse()))){mode=ScreenMode.Guide;focus=0;}return;
+        }
         if(mode==ScreenMode.Select){if(controls.Left||controls.Right){selectedFighter=1-selectedFighter;audioFx.Play("confirm");}if(controls.Back){mode=ScreenMode.Menu;focus=0;return;}}
         if(mode==ScreenMode.Guide&&controls.Back){mode=guideReturn;focus=0;return;}
-        if(mode==ScreenMode.Pause&&controls.Pause){mode=ScreenMode.Fight;return;}
+        if(mode==ScreenMode.Pause&&controls.Pause){disconnectNotice="";mode=ScreenMode.Fight;return;}
         if(buttons.Count==0)return;
         if(controls.Down){focus=(focus+1)%buttons.Count;audioFx.Play("confirm");}
         if(controls.Up){focus=(focus+buttons.Count-1)%buttons.Count;audioFx.Play("confirm");}
@@ -73,7 +82,7 @@ public sealed class RedRivalryGame:MonoBehaviour {
             announceTime=3;audioFx.Play("ko");
         }
     }
-    public void BeginMatch(int kind,bool isLocal=false,bool practice=false){selectedFighter=kind;local=isLocal;training=practice;world.fighters[0].kind=kind;world.fighters[1].kind=1-kind;foreach(var f in world.fighters)f.wins=0;round=1;matchFinished=false;particles.Clear();ai=new OpponentAI();ResetRound();mode=ScreenMode.Fight;}
+    public void BeginMatch(int kind,bool isLocal=false,bool practice=false){disconnectNotice="";selectedFighter=kind;local=isLocal;training=practice;world.fighters[0].kind=kind;world.fighters[1].kind=1-kind;foreach(var f in world.fighters)f.wins=0;round=1;matchFinished=false;particles.Clear();ai=new OpponentAI();ResetRound();mode=ScreenMode.Fight;}
     void ResetRound(){world.Reset();remaining=90;countdown=3.3f;roundEnd=-1;announceTime=0;particles.Clear();speeches.Clear();}
     static bool Beat(float t,float when){return t>=when&&t<when+.08f;}
     void Select(bool two,bool practice){local=two;training=practice;mode=ScreenMode.Select;focus=0;}
@@ -96,6 +105,7 @@ public sealed class RedRivalryGame:MonoBehaviour {
         else if(mode==ScreenMode.Menu)DrawMenu();
         else if(mode==ScreenMode.Select)DrawSelect();
         else if(mode==ScreenMode.Guide)DrawGuide();
+        else if(mode==ScreenMode.Controllers)DrawControllers();
         if(mode==ScreenMode.Pause)DrawPause();
         if(mode==ScreenMode.Result)DrawResult();
         canvas.Upload();
@@ -118,7 +128,8 @@ public sealed class RedRivalryGame:MonoBehaviour {
         canvas.Text("КНИГИ, ТРУБКА И НЕМНОГО ХАОСА",29,172,Gold);
         Button("ОДИНОЧНЫЙ БОЙ",29,198,273,()=>Select(false,false));Button("ДВОЕ У ОДНОГО ЭКРАНА",29,230,273,()=>Select(true,false));Button("ТРЕНИРОВКА",29,262,273,()=>Select(false,true));
         Button("УПРАВЛЕНИЕ",29,294,169,()=>Guide(ScreenMode.Menu),true);Button(audioFx.muted?"ЗВУК: ВЫКЛ":"ЗВУК: ВКЛ",203,294,99,()=>audioFx.Toggle(),true);
-        canvas.Text("ENTER / A: ВЫБРАТЬ",29,337,Muted);canvas.Text("ESC: НАЗАД",217,337,Muted);
+        canvas.Text("ENTER / "+controls.ConfirmKey+": ВЫБРАТЬ",29,337,Muted);canvas.Text("ESC / "+controls.BackKey+": НАЗАД",217,337,Muted);
+        canvas.Text(controls.AnyPad?"P1: "+controls.DeviceName(0):"КЛАВИАТУРА / МЫШЬ / ГЕЙМПАД",29,349,controls.AnyPad?Teal:Muted);
         canvas.Text("1917",365,33,Red,2);canvas.Text("АЛЬТЕРНАТИВНАЯ ИСТОРИЯ",365,54,Muted,1,true);
         canvas.Text("ЛЕНИН",382,322,White,2,true);canvas.Text("СТАЛИН",513,322,White,2,true);canvas.Text("КНИГИ",390,343,Gold,1,true);canvas.Text("ТРУБКА",520,343,Teal,1,true);
         Button("ВЫХОД",541,25,76,()=>Application.Quit(),true);
@@ -140,7 +151,7 @@ public sealed class RedRivalryGame:MonoBehaviour {
         Button("НАЧАТЬ БОЙ",35,294,196,()=>BeginMatch(selectedFighter,local,training));
         Button(stage==0?"АРЕНА: ПЛОЩАДЬ":"АРЕНА: ЦЕХ",240,294,195,()=>stage=1-stage);
         Button("ИИ: "+(difficulty==0?"ЛЕГКО":difficulty==1?"НОРМА":"СЛОЖНО"),444,294,161,()=>difficulty=(difficulty+1)%3);
-        canvas.Text("A / D ИЛИ СТИК: БОЕЦ   ENTER / A: СТАРТ   ESC / B: НАЗАД",35,341,Muted);
+        canvas.Text("A / D ИЛИ СТИК: БОЕЦ   ENTER / "+controls.ConfirmKey+": СТАРТ   ESC / "+controls.BackKey+": НАЗАД",35,341,Muted);
     }
     void DrawBattle(){
         foreach(var f in world.fighters)canvas.Ellipse((int)f.x,305,(int)(30-f.height*.09f),5,C(0x152333));
@@ -157,8 +168,9 @@ public sealed class RedRivalryGame:MonoBehaviour {
         if(countdown>0){string text=countdown>1.1f?"РАУНД "+round:"В БОЙ!";canvas.Center(text,320,122,countdown>1.1f?White:Gold,3,true);}
         if(announceTime>0){canvas.Center(announcement,320,123,Gold,1,true);}
         R(0,326,640,34,0x0d1828);R(0,326,640,1,0x4c5260);
-        canvas.Text(training?"ТРЕНИРОВКА":"РАУНД "+round,19,336,Gold);canvas.Text("J / ЛКМ: УДАР   K / ПКМ: МОЩНЫЙ   SHIFT: БЛОК",143,336,Muted);
-        canvas.Text("Q: КНИГА/ДЫМ   E: ПРИЁМ   R: СУПЕР   ESC: ПАУЗА",143,348,Muted);canvas.Text("F11: ЭКРАН",556,348,Muted);
+        canvas.Text(training?"ТРЕНИРОВКА":"РАУНД "+round,19,336,Gold);
+        canvas.Text(controls.IsConnected(0)?controls.LightKey(0)+": УДАР   "+controls.HeavyKey(0)+": МОЩНЫЙ   "+controls.BlockKey(0)+": БЛОК":"J / ЛКМ: УДАР   K / ПКМ: МОЩНЫЙ   SHIFT: БЛОК",143,336,Muted);
+        canvas.Text(controls.IsConnected(0)?controls.SpecialKey(0)+": КНИГА/ДЫМ   "+controls.SkillKey(0)+": ПРИЁМ   "+controls.UltimateKey(0)+": СУПЕР   "+controls.PauseKey+": ПАУЗА":"Q: КНИГА/ДЫМ   E: ПРИЁМ   R: СУПЕР   ESC: ПАУЗА",143,348,Muted);canvas.Text("F11: ЭКРАН",556,348,Muted);
     }
     void DrawHud(){
         for(int y=0;y<88;y++)for(int x=0;x<W;x++){int k=(H-1-y)*W+x;canvas.pixels[k]=Color32.Lerp(canvas.pixels[k],C(0x0a1220),y<76?.94f:Mathf.Lerp(.94f,.45f,(y-76)/12f));}R(0,87,640,1,0x796a5d);
@@ -171,26 +183,45 @@ public sealed class RedRivalryGame:MonoBehaviour {
             canvas.Rect(bx+2,37,delayed,11,Gold);canvas.Rect(bx+2,37,hp,11,accent);canvas.Rect(bx+2,37,hp,3,i==0?C(0xf79b83):C(0xb2e3d6));
             for(int j=1;j<4;j++)R(bx+j*50,36,1,13,0x253043);
             R(bx,56,200,6,0x273247);canvas.Rect(bx+1,57,(int)(f.energy*1.98f),4,f.energy>=100?Gold:accent);
-            canvas.Text(f.energy>=100?"СУПЕР ГОТОВ / R":"ЭНЕРГИЯ "+(int)f.energy,bx,70,f.energy>=100?Gold:Muted);
+            canvas.Text(f.energy>=100?"СУПЕР ГОТОВ / "+(controls.IsConnected(i)?controls.UltimateKey(i):i==0?"R":"NUM6"):"ЭНЕРГИЯ "+(int)f.energy,bx,70,f.energy>=100?Gold:Muted);
             for(int j=0;j<2;j++)canvas.Ellipse(i==0?258+j*11:599+j*11,74,3,3,j<f.wins?Gold:C(0x344052));
         }
         Panel(288,13,64,61);canvas.Center(training?"--":Mathf.CeilToInt(remaining).ToString("00"),320,24,White,3);canvas.Center("BEST OF 3",320,59,Gold);
         canvas.Center(stage==0?"ЗИМНЯЯ ПЛОЩАДЬ":"ЛИТЕЙНЫЙ ЦЕХ",320,95,Gold,1,true);
     }
-    void DrawPause(){canvas.Dim(.35f);Panel(170,78,300,209);canvas.Center("ПАУЗА",320,98,White,3);Button("ПРОДОЛЖИТЬ",196,138,248,()=>mode=ScreenMode.Fight);Button("УПРАВЛЕНИЕ И ПРИЁМЫ",196,171,248,()=>Guide(ScreenMode.Pause));Button("НАЧАТЬ ЗАНОВО",196,204,248,()=>BeginMatch(selectedFighter,local,training));Button("ГЛАВНОЕ МЕНЮ",196,237,248,()=>{mode=ScreenMode.Menu;focus=0;});}
+    void DrawPause(){canvas.Dim(.35f);Panel(170,78,300,209);canvas.Center("ПАУЗА",320,98,White,3);if(disconnectNotice.Length>0)canvas.Center(disconnectNotice,320,123,Gold);Button("ПРОДОЛЖИТЬ",196,138,248,()=>{disconnectNotice="";mode=ScreenMode.Fight;});Button("УПРАВЛЕНИЕ И ПРИЁМЫ",196,171,248,()=>Guide(ScreenMode.Pause));Button("НАЧАТЬ ЗАНОВО",196,204,248,()=>BeginMatch(selectedFighter,local,training));Button("ГЛАВНОЕ МЕНЮ",196,237,248,()=>{mode=ScreenMode.Menu;focus=0;});}
     void DrawResult(){canvas.Dim(.45f);Panel(137,88,366,190);int win=world.fighters[0].wins>=2?0:1;canvas.Center("ПОБЕДИТЕЛЬ",320,106,Gold,2);canvas.Center(world.fighters[win].kind==0?"ЛЕНИН":"СТАЛИН",320,133,White,4);canvas.Center(world.fighters[0].wins+" : "+world.fighters[1].wins,320,178,Gold,2);Button("РЕВАНШ",161,211,149,()=>BeginMatch(selectedFighter,local,training));Button("В МЕНЮ",322,211,157,()=>{mode=ScreenMode.Menu;focus=0;});canvas.Center("ДО ДВУХ ПОБЕД",320,257,Muted);}
     void DrawGuide(){
+        int guideSlot=controls.MenuSlot;
         canvas.Dim(.25f);Panel(20,15,600,329);canvas.Text("УПРАВЛЕНИЕ / ШКОЛА БОЯ",38,32,White,2);
-        canvas.Text("ДЕЙСТВИЕ",39,65,Gold);canvas.Text("КЛАВИАТУРА + МЫШЬ",217,65,Gold);canvas.Text("ГЕЙМПАД XINPUT",459,65,Gold);
+        canvas.Text("ДЕЙСТВИЕ",39,65,Gold);canvas.Text("КЛАВИАТУРА + МЫШЬ",217,65,Gold);canvas.Text(controls.PlayStation(guideSlot)?"PLAYSTATION":"ГЕЙМПАД XBOX",459,65,Gold);
         string[] names={"ДВИЖЕНИЕ","ПРЫЖОК / ПРИСЕД","ЛЁГКИЙ УДАР","МОЩНЫЙ УДАР","БЛОК","СПЕЦПРИЁМ (20)","ОСОБЫЙ ПРИЁМ (30)","СУПЕРУДАР (100)"};
-        string[] keys={"A / D","W / SPACE / S","J / ЛКМ","K / ПКМ","SHIFT / СКМ","Q / U","E / I","R / O"};string[] pad={"СТИК / D-PAD","A / D-PAD ВНИЗ","X","Y","LB / LT","B","RB","RT"};
+        string[] keys={"A / D","W / SPACE / S","J / ЛКМ","K / ПКМ","SHIFT / СКМ","Q / U","E / I","R / O"};string[] pad={"СТИК / D-PAD",(controls.PlayStation(guideSlot)?"×":"A")+" / ВНИЗ",controls.LightKey(guideSlot),controls.HeavyKey(guideSlot),controls.BlockKey(guideSlot),controls.SpecialKey(guideSlot),controls.SkillKey(guideSlot),controls.UltimateKey(guideSlot)};
         for(int i=0;i<names.Length;i++){int y=85+i*17;if(i%2==0)R(32,y-4,576,16,0x172337);canvas.Text(names[i],39,y,Muted);canvas.Text(keys[i],217,y,White);canvas.Text(pad[i],459,y,Teal);}
         canvas.Text("P2: СТРЕЛКИ / NUM1 / NUM2 / RSHIFT / NUM4 / NUM5 / NUM6",39,230,Gold);
         canvas.Text("ЛЕНИН: Q - КНИГА. E - АРГУМЕНТ. R - ПОЛНОЕ СОБРАНИЕ.",39,249,Muted);
         canvas.Text("СТАЛИН: Q - ДЫМ. E - ЗАВЕСА. R - БОЛЬШАЯ ЗАТЯЖКА.",39,265,Muted);
         canvas.Text("БЛОК СНИЖАЕТ УРОН. КНИГИ МОЖНО ПЕРЕПРЫГИВАТЬ.",39,281,Muted);
         Button("НАЗАД",39,305,138,()=>{mode=guideReturn;focus=0;},true);Button(audioFx.muted?"ЗВУК: ВЫКЛ":"ЗВУК: ВКЛ",190,305,145,()=>audioFx.Toggle(),true);
-        canvas.Text("F11: ЭКРАН / M: ЗВУК",364,313,Muted);
+        Button("ПРОВЕРИТЬ ГЕЙМПАД",350,305,248,()=>{mode=ScreenMode.Controllers;focus=0;},true);
+    }
+    void DrawControllers(){
+        canvas.Dim(.3f);Panel(20,15,600,329);canvas.Text("ПРОВЕРКА КОНТРОЛЛЕРОВ",38,31,White,2);
+        canvas.Text("НАЖИМАЙ КНОПКИ И ДВИГАЙ ОБА СТИКА",39,57,Muted);
+        for(int slot=0;slot<2;slot++){
+            int x=39+slot*294;canvas.Text("P"+(slot+1)+": "+controls.DeviceName(slot),x,79,controls.IsConnected(slot)?Teal:Muted);
+            string[] labels={controls.PlayStation(slot)?"×":"A",controls.SpecialKey(slot),controls.LightKey(slot),controls.HeavyKey(slot),controls.PlayStation(slot)?"L1":"LB",controls.SkillKey(slot),controls.PlayStation(slot)?"OPTIONS":"START"};
+            Controls.Buttons[] masks={Controls.Buttons.Jump,Controls.Buttons.Special,Controls.Buttons.Light,Controls.Buttons.Heavy,Controls.Buttons.Block,Controls.Buttons.Skill,Controls.Buttons.Start};
+            for(int i=0;i<labels.Length;i++){int bx=x+i%4*65,by=105+i/4*30;bool held=controls.Held(slot,masks[i]);R(bx,by,60,24,held?0x377e78u:0x1b293bu);canvas.Frame(bx,by,60,24,held?Teal:Muted);canvas.Center(labels[i],bx+30,by+8,held?White:Muted);}
+            for(int stick=0;stick<2;stick++){
+                var value=stick==0?controls.Stick(slot):controls.RightStick(slot);int cx=x+35+stick*72,cy=205;canvas.Frame(cx-25,cy-25,51,51,Muted);canvas.Line(cx-24,cy,cx+24,cy,C(0x344459));canvas.Line(cx,cy-24,cx,cy+24,C(0x344459));canvas.Ellipse(cx+(int)(value.x*22),cy-(int)(value.y*22),4,4,Teal);canvas.Center(stick==0?"ЛЕВЫЙ":"ПРАВЫЙ",cx,237,Muted);
+            }
+            for(int trigger=0;trigger<2;trigger++){int tx=x+153+trigger*54;canvas.Frame(tx,180,34,51,Muted);int h=(int)(controls.Trigger(slot,trigger==1)*47);R(tx+2,229-h,30,h,0x73d4cf);canvas.Center(controls.PlayStation(slot)?(trigger==0?"L2":"R2"):(trigger==0?"LT":"RT"),tx+17,237,Muted);}
+            string direction="";if(controls.Held(slot,Controls.Buttons.Up))direction+="ВВЕРХ ";if(controls.Held(slot,Controls.Buttons.Down))direction+="ВНИЗ ";if(controls.Held(slot,Controls.Buttons.Left))direction+="ВЛЕВО ";if(controls.Held(slot,Controls.Buttons.Right))direction+="ВПРАВО";
+            canvas.Text("КРЕСТОВИНА: "+direction,x,259,Gold);
+            canvas.Text(controls.LightKey(slot)+": ПРОВЕРИТЬ ВИБРАЦИЮ",x,278,Muted);
+        }
+        Button("НАЗАД",39,307,138,()=>{mode=ScreenMode.Guide;focus=0;},true);canvas.Text("ESC / "+controls.BackKey+": НАЗАД",199,315,Muted);
     }
     void TickQa(float dt){
         qaTime+=dt;

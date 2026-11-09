@@ -11,10 +11,10 @@ public static class BuildGame {
         try {
             ConfigureArt();if(Array.IndexOf(Environment.GetCommandLineArgs(),"--art-review")>=0)ExportWalkReview();RunChecks();
             var scene=EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,NewSceneMode.Single);EditorSceneManager.SaveScene(scene,"Assets/Scenes/RedRivalry.unity");
-            PlayerSettings.companyName="Pixel Duel Studio";PlayerSettings.productName="Красный поединок";PlayerSettings.bundleVersion="3.0.0";
+            PlayerSettings.companyName="Pixel Duel Studio";PlayerSettings.productName="Красный поединок";PlayerSettings.bundleVersion="3.1.0";
             PlayerSettings.defaultScreenWidth=1280;PlayerSettings.defaultScreenHeight=720;PlayerSettings.fullScreenMode=FullScreenMode.Windowed;PlayerSettings.resizableWindow=true;PlayerSettings.runInBackground=true;
             PlayerSettings.SetScriptingBackend(UnityEditor.Build.NamedBuildTarget.Standalone,ScriptingImplementation.Mono2x);PlayerSettings.colorSpace=ColorSpace.Gamma;
-            var settings=new SerializedObject(AssetDatabase.LoadAllAssetsAtPath("ProjectSettings/ProjectSettings.asset")[0]);var handler=settings.FindProperty("activeInputHandler");if(handler!=null){handler.intValue=0;settings.ApplyModifiedPropertiesWithoutUndo();}
+            var settings=new SerializedObject(AssetDatabase.LoadAllAssetsAtPath("ProjectSettings/ProjectSettings.asset")[0]);var handler=settings.FindProperty("activeInputHandler");if(handler!=null){handler.intValue=2;settings.ApplyModifiedPropertiesWithoutUndo();}
             string target=Path.GetFullPath(Path.Combine(Application.dataPath,"../../Windows/RedRivalry.exe"));Directory.CreateDirectory(Path.GetDirectoryName(target));
             var report=BuildPipeline.BuildPlayer(new BuildPlayerOptions{scenes=new[]{"Assets/Scenes/RedRivalry.unity"},locationPathName=target,target=BuildTarget.StandaloneWindows64,options=BuildOptions.None});
             if(report.summary.result!=UnityEditor.Build.Reporting.BuildResult.Succeeded)throw new Exception("Build failed: "+report.summary.result);
@@ -62,7 +62,7 @@ public static class BuildGame {
         w.Reset();a.x=280;b.x=340;b.hp=5;Advance(w,1,new Command{light=true});Advance(w,50);Check(b.hp==0&&b.state==ActionState.KO,"knockout stops opponent");
         w.Reset();b.invulnerable=1;w.Hit(a,b,10,false,1);Check(b.hp==100,"invulnerability prevents repeat hits");
         w.Reset();a.energy=200;Advance(w,1);Check(a.energy<=100,"energy clamped");
-        var pad=new Controls();pad.InjectForTest(0,0x4000,24000);var command=pad.Read(0,false);Check(command.light&&command.move>.5f,"XInput X and left stick mapping");pad.InjectForTest(0,0x4000,0);Check(!pad.Read(0,false).light,"held X does not repeat press");pad.InjectForTest(0,0x1000);Check(pad.Read(0,false).jump,"XInput A jump mapping");pad.InjectForTest(0,0x8000);Check(pad.Read(0,false).heavy,"XInput Y heavy mapping");pad.InjectForTest(0,0x2000);Check(pad.Read(0,false).special,"XInput B special mapping");pad.InjectForTest(0,0x200);Check(pad.Read(0,false).skill,"XInput RB skill mapping");pad.InjectForTest(0,0x100);Check(pad.Read(0,false).block,"XInput LB block mapping");
+        ControllerChecks.Run(Check);
         Check(SpriteArt.LoadedFrames==24,"24 registered character animation frames");
         Check(SpriteArt.CastFrames==8,"eight dedicated book and pipe animation frames");
         Check(SmokeVfx.Loaded,"pixel-art smoke texture is included");
