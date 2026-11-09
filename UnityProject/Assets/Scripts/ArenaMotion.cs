@@ -24,12 +24,21 @@ public sealed class ArenaMotion {
     void Furnace(float time){
         for(int y=125;y<246;y++)for(int x=12;x<628;x++){int k=(H-1-y)*W+x;var c=p.pixels[k];if(c.r>110&&c.r>c.g*1.3f){float a=(Mathf.Sin(time*3+x*.07f+y*.11f)+1)*.055f;p.pixels[k]=Color32.Lerp(c,C(0xffc372),a);}}
     }
-    static bool TrackOpening(int x,int y){if(y<209||y>281)return false;if(y>=266)return x>69&&x<201||x>253&&x<389||x>441&&x<573;return x>62&&x<205||x>249&&x<394||x>439&&x<578;}
+    static bool TrackOpening(int x,int y){
+        if(y<152||y>281)return false;
+        if(y>=266)return x>69&&x<201||x>253&&x<389||x>441&&x<573;
+        float center=x>62&&x<205?133.5f:x>249&&x<394?321.5f:x>439&&x<578?508.5f:-1;
+        if(center<0)return false;
+        if(y<195){float u=(x-center)/72f;if(y<195-43*Mathf.Sqrt(Mathf.Max(0,1-u*u)))return false;}
+        // The hanging lamps belong to the hall in front of the track.
+        if(y>=150&&y<=188&&(Mathf.Abs(x-145)<=15||Mathf.Abs(x-320)<=15||Mathf.Abs(x-495)<=15))return false;
+        return true;
+    }
     void Metro(float time){
-        float phase=time%22;int offset=Mathf.RoundToInt(-930+phase*135);
-        if(phase<13&&train!=null)for(int car=0;car<4;car++){
-            int left=offset+car*228;for(int y=0;y<63;y++)for(int x=0;x<222;x++){
-                int px=left+x,py=219+y;if(!TrackOpening(px,py))continue;var c=train[(y*trainH/63)*trainW+x*trainW/222];if(c.a<40)continue;int k=(H-1-py)*W+px;p.pixels[k]=Color32.Lerp(p.pixels[k],c,c.a/255f);
+        float phase=time%28;int offset=Mathf.RoundToInt(-1730+phase*175);
+        if(phase<15&&train!=null)for(int car=0;car<4;car++){
+            int left=offset+car*424,start=Mathf.Max(0,-left),end=Mathf.Min(416,W-left);if(start>=end)continue;for(int y=0;y<118;y++)for(int x=start;x<end;x++){
+                int px=left+x,py=164+y;if(!TrackOpening(px,py))continue;var c=train[(y*trainH/118)*trainW+x*trainW/416];if(c.a<40)continue;int k=(H-1-py)*W+px;p.pixels[k]=Color32.Lerp(p.pixels[k],c,c.a/255f);
             }
         }
         Glint(145,171,time,0);Glint(320,171,time,1);Glint(495,171,time,2);

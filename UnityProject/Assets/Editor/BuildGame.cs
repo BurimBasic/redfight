@@ -11,7 +11,8 @@ public static class BuildGame {
         try {
             ConfigureArt();if(Array.IndexOf(Environment.GetCommandLineArgs(),"--art-review")>=0)ExportWalkReview();RunChecks();if(Array.IndexOf(Environment.GetCommandLineArgs(),"--arena-review")>=0)ArenaReview.Export();
             var scene=EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,NewSceneMode.Single);EditorSceneManager.SaveScene(scene,"Assets/Scenes/RedRivalry.unity");
-            PlayerSettings.companyName="Pixel Duel Studio";PlayerSettings.productName="Красный поединок";PlayerSettings.bundleVersion="3.2.0";
+            PlayerSettings.companyName="Pixel Duel Studio";PlayerSettings.productName="Красный поединок";PlayerSettings.bundleVersion="3.2.1";
+            var icon=AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Branding/RedRivalryIcon.png");if(icon==null)throw new Exception("Game icon missing");var icons=new Texture2D[PlayerSettings.GetIconSizesForTargetGroup(BuildTargetGroup.Standalone).Length];for(int i=0;i<icons.Length;i++)icons[i]=icon;PlayerSettings.SetIconsForTargetGroup(BuildTargetGroup.Standalone,icons);
             PlayerSettings.defaultScreenWidth=1280;PlayerSettings.defaultScreenHeight=720;PlayerSettings.fullScreenMode=FullScreenMode.Windowed;PlayerSettings.resizableWindow=true;PlayerSettings.runInBackground=true;
             PlayerSettings.SetScriptingBackend(UnityEditor.Build.NamedBuildTarget.Standalone,ScriptingImplementation.Mono2x);PlayerSettings.colorSpace=ColorSpace.Gamma;
             var settings=new SerializedObject(AssetDatabase.LoadAllAssetsAtPath("ProjectSettings/ProjectSettings.asset")[0]);var handler=settings.FindProperty("activeInputHandler");if(handler!=null){handler.intValue=2;settings.ApplyModifiedPropertiesWithoutUndo();}
@@ -78,7 +79,7 @@ public static class BuildGame {
             Check(changed>20,"arena scenery animates "+ArenaArt.Title(stage));var same=(Color32[])p.pixels.Clone();art.Draw(stage,7.7f);bool deterministic=true;for(int k=0;k<same.Length;k++)if(!same[k].Equals(p.pixels[k])){deterministic=false;break;}Check(deterministic,"arena animation is time based "+ArenaArt.Title(stage));
         }
         Check(ArenaArt.Normalize(-1)==5&&ArenaArt.Normalize(6)==0,"saved arena and selection indices wrap safely");
-        art.Draw(2,7.7f);bool columns=true,floor=true;foreach(int x in new[]{36,226,415,603})if(!p.pixels[(359-247)*640+x].Equals(art.backgrounds[2][(359-247)*640+x]))columns=false;for(int x=0;x<640;x++)if(!p.pixels[59*640+x].Equals(art.backgrounds[2][59*640+x]))floor=false;Check(columns&&floor,"metro train remains behind columns and off the fighting floor");
+        art.Draw(2,7.7f);bool columns=true,floor=true;foreach(int x in new[]{36,226,415,603})foreach(int y in new[]{175,200,247,275})if(!p.pixels[(359-y)*640+x].Equals(art.backgrounds[2][(359-y)*640+x]))columns=false;for(int x=0;x<640;x++)if(!p.pixels[59*640+x].Equals(art.backgrounds[2][59*640+x]))floor=false;Check(columns&&floor,"large metro train remains behind full-height columns and off the fighting floor");
         foreach(ActionState state in Enum.GetValues(typeof(ActionState))){a.state=state;a.stateTime=.3f;a.stateDuration=.6f;FighterArt.Draw(p,a,1);a.kind=1;FighterArt.Draw(p,a,1);}
         p.Upload();Check(p.texture.width==640,"all animation states render");
         w.Reset();a.kind=0;b.kind=1;var aiA=new OpponentAI();var aiB=new OpponentAI();for(int i=0;i<60*110&&a.hp>0&&b.hp>0;i++)w.Step(1f/60,aiA.Think(a,b,1f/60,2),aiB.Think(b,a,1f/60,2));Check(a.hp<=0||b.hp<=0,"AI can finish a full fight");
